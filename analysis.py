@@ -69,7 +69,7 @@ def callback(message):
 
           breadcrumb_count = breadcrumb_count + 1
 
-          if breadcrumb_count % 10000 == 0:
+          if breadcrumb_count % 100000 == 0:
               print(f"Collected {breadcrumb_count} so far")
 
           unique_vehicles.add(breadcrumb['VEHICLE_ID'])
@@ -117,7 +117,7 @@ def callback(message):
 #---Listening--------------------------------------------------------------
 streaming_pull = subscriber.subscribe(sub_path, callback=callback)
 
-print(f"Listening for messages on {SUBSCRIPTION_ID} . . .")
+#print(f"Listening for messages on {SUBSCRIPTION_ID} . . .")
 
 with subscriber:
         try:
