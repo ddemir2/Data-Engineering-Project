@@ -117,7 +117,8 @@ def callback(message):
 #---Listening--------------------------------------------------------------
 streaming_pull = subscriber.subscribe(sub_path, callback=callback)
 
-#print(f"Listening for messages on {SUBSCRIPTION_ID} . . .")
+current_time = format_time(time.time())
+print(f"{current_time} - Listening for messages on {SUBSCRIPTION_ID} . . .")
 
 with subscriber:
         try:
