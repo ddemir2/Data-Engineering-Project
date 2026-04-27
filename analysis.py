@@ -42,7 +42,6 @@ def format_time(raw_timestamp):
     return formated_time.strftime('%Y-%m-%d %H:%M:%S')
 
 
-
 #---Congiguration----------------------------------------------------------
 PROJECT_ID       = 'de-project-bus-lightyear'
 SUBSCRIPTION_ID  = 'analysis_sub'
@@ -118,7 +117,7 @@ def callback(message):
 streaming_pull = subscriber.subscribe(sub_path, callback=callback)
 
 current_time = format_time(time.time())
-print(f"{current_time} - Listening for messages on {SUBSCRIPTION_ID} . . .")
+print(f"{current_time} - Listening for messages on {SUBSCRIPTION_ID} . . . .")
 
 with subscriber:
         try:
