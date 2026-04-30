@@ -4,6 +4,14 @@ import requests, json, time
 from google.cloud import pubsub_v1
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
+import logging
+import pandas as pd
+
+logging.basicConfig(
+	level=logging.INFO,
+	format="%(asctime)s %(levelname)s %(message)s"
+)
+
 
 
 #---Data Structures---------------------------------------------------------
@@ -15,9 +23,58 @@ unique_vehicles = set()
 unique_trips = set()
 expected_count = None
 sentinel_time = None
+unvalidated_batch_df = pd.DataFrame(columns=['EVENT_NO_TRIP', 'EVENT_NO_STOP', 'OPD_DATE', 'VEHICLE_ID', 'METERS', 'ACT_TIME', 'GPS_LONGITUDE', 'GPS_LATITUDE', 'GPS_SATELLITES', 'GPS_HDOP'])
 
 
 #---Helper Functions-------------------------------------------------------
+
+def validate_batch(unvalidated_batch_df):
+	"""
+	Run all implemented validation assertions against a batch of breadcrumbs in a df
+
+	Parameters
+	----------
+	batch_df : df
+		A df of breadcrumbs
+
+	Returns
+	-------
+	validated_batch_df
+		df containing only records which passed ALL assertions.
+	"""
+	violations_df = pd.DataFrame(columns=['ASSERTION_FAILURE', 'EVENT_NO_TRIP', 'EVENT_NO_STOP', 'OPD_DATE', 'VEHICLE_ID', 'METERS', 'ACT_TIME', 'GPS_LONGITUDE', 'GPS_LATITUDE', 'GPS_SATELLITES', 'GPS_HDOP'])
+
+	#---ASSERTION 1---[LIMIT]  GPS_LATITUDE must be non-null and in [-90, 90]-----
+	lat_over_positive_90  = unvalidated_batch_df['GPS_LATITUDE'] > 90
+	lat_under_negative_90 = unvalidated_batch_df['GPS_LATITUDE'] < -90
+	null_lat = unvalidated_batch_df['GPS_LATITUDE'].isna()
+	invalid_lat = unvalidated_batch_df[lat_over_positive_90 | lat_under_negative_90 | null_lat].copy()
+	unvalidated_batch_df = unvalidated_batch_df.drop(invalid_lat.index) # remove offending rows from unvalidated_batch_df
+
+	if not invalid_lat.empty:
+		invalid_lat['ASSERTION_FAILURE'] = 'A1 [LIMIT]: GPS_LATITUDE is null or out of range [-90, 90]'
+		if violations_df.empty:
+		# If violations_df is initially empty, set it to the first set of violations
+		violations_df = invalid_lat
+	else:
+		# Otherwise, concatenate with ignore_index=True to handle indices properly
+		violations_df = pd.concat([violations_df, invalid_lat], ignore_index=True)
+
+
+	#---At this point, invalid records have been fully removed from unvalidated_batch_df---
+	if violations_df.empty:
+		logging.info("No violations found")
+	else:
+		for row in violations_df.itertuples():
+			logging.warning("VALIDATION VIOLATION - %s", row)
+
+
+	violations_df.drop(violations_df.index, inplace=True) # empty violations df
+	validated_batch_df = unvalidated_batch_df.copy()
+	return validated_batch_df
+
+
+
 def calc_breadcrumb_timestamp(opd_date, act_time):
         '''
         Each breadcrumb has it's datetime value split between two fields: OPD_DATE (string representing the correct day at midnight) >
@@ -27,6 +84,7 @@ def calc_breadcrumb_timestamp(opd_date, act_time):
         time_elapsed = timedelta(seconds=act_time)
         proper_datetime=datetime.combine(the_date, datetime.min.time())+ time_elapsed
         return proper_datetime # return type is datetime object
+
 
 
 def format_time(raw_timestamp):
