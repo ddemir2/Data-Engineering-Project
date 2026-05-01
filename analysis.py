@@ -110,7 +110,7 @@ sub_path   = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
 #---Callback Function------------------------------------------------------
 def callback(message):
 	global breadcrumb_count, unique_vehicles, unique_trips, earliest_bc, latest_bc, wall_clock_time
-	global expected_count, sentinel_time
+	global expected_count, sentinel_time, unvalidated_batch_df, validate_count
 	message.ack()
 	breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
 	breadcrumb_df = pd.DataFrame([breadcrumb])
