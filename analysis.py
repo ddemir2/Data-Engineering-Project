@@ -113,7 +113,7 @@ def callback(message):
 	global expected_count, sentinel_time
 	message.ack()
 	breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
-	breadcrumb_df = pd.DataFrame(breadcrumb)
+	breadcrumb_df = pd.DataFrame([breadcrumb])
 
 	# analysis happens here
 	if breadcrumb['VEHICLE_ID'] == 0:
@@ -130,6 +130,7 @@ def callback(message):
 
 		#-----DATA VALIDATION, TRANSOFRMATION, INSERT  GOES HERE-------------------------------------------
 		if(len(unvalidated_batch_df) <= 20000):
+			validate_count = validate_count + 1
 			unvalidated_batch_df = pd.concat([unvalidated_batch_df, breadcrumb_df])
 		else:
 			validated_batch_df = validate_batch(unvalidated_batch_df)
@@ -137,7 +138,6 @@ def callback(message):
 			#pass transformed tables to database insert function
 			validated_batch_df   = validated_batch_df.drop(validated_batch_df.index)
 			unvalidated_batch_df = unvalidated_batch_df.drop(unvalidated_batch_df.index)
-			validate_count = validate_count + 1
 			print(f'{validate_count} breadcrumbs validated so far . . .')
 
 		#-----------------------------------------------------------------------
