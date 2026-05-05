@@ -222,7 +222,7 @@ def callback(message):
 	global expected_count, sentinel_time, unvalidated_batch_df, validate_count
 	message.ack()
 	breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
-	#breadcrumb_df = pd.DataFrame([breadcrumb])
+	breadcrumb_df = pd.DataFrame([breadcrumb])
 
 	# analysis happens here
 	if breadcrumb['VEHICLE_ID'] == 0:
@@ -230,27 +230,16 @@ def callback(message):
 		expected_count = breadcrumb['METERS']
 		sentinel_time = time.time()
 	else:
-        	# Not sentinel so process data
+		unvalidated_batch_df = pd.concat([unvalidated_batch_df, breadcrumb_df])
+		if len(unvalidated_batch_df) % 100000 == 0:
+			print(f"{len(unvalidated_batch_df)} records loaded into a df")
+
+		# Not sentinel so process data
 		if wall_clock_time is None: #start timer when first breadcrumb recieved
 			wall_clock_time = time.time()
 			print(f"First breadcrumb received at {format_time(wall_clock_time)}")
 
 		breadcrumb_count = breadcrumb_count + 1
-
-		#-----DATA VALIDATION, TRANSFORMATION, INSERT  GOES HERE-------------------------------------------
-		'''
-		if(len(unvalidated_batch_df) <= 20000):
-			validate_count = validate_count + 1
-			unvalidated_batch_df = pd.concat([unvalidated_batch_df, breadcrumb_df])
-		else:
-			validated_batch_df = validate_batch(unvalidated_batch_df)
-			#pass validated df to transform function
-			#pass transformed tables to database insert function
-			validated_batch_df   = validated_batch_df.drop(validated_batch_df.index)
-			unvalidated_batch_df = unvalidated_batch_df.drop(unvalidated_batch_df.index)
-			print(f'{validate_count} breadcrumbs validated so far . . .')
-		'''
-		#-----------------------------------------------------------------------
 
 		if breadcrumb_count % 100000 == 0:
 			print(f"Collected {breadcrumb_count} so far")
