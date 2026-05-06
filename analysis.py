@@ -222,7 +222,7 @@ def callback(message):
 	global expected_count, sentinel_time, unvalidated_batch_df, validate_count
 	message.ack()
 	breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
-	breadcrumb_df = pd.DataFrame([breadcrumb])
+	#breadcrumb_df = pd.DataFrame([breadcrumb])
 
 	# analysis happens here
 	if breadcrumb['VEHICLE_ID'] == 0:
@@ -230,9 +230,9 @@ def callback(message):
 		expected_count = breadcrumb['METERS']
 		sentinel_time = time.time()
 	else:
-		unvalidated_batch_df = pd.concat([unvalidated_batch_df, breadcrumb_df], ignore_index=True)
-		if len(unvalidated_batch_df) % 100000 == 0:
-			print(f"{len(unvalidated_batch_df)} records loaded into a df")
+		#unvalidated_batch_df = pd.concat([unvalidated_batch_df, breadcrumb_df], ignore_index=True)
+		#if len(unvalidated_batch_df) % 100000 == 0:
+		#	print(f"{len(unvalidated_batch_df)} records loaded into a df")
 
 		# Not sentinel so process data
 		if wall_clock_time is None: #start timer when first breadcrumb recieved
@@ -274,7 +274,12 @@ def callback(message):
 		print(f"Sentinel Received Time: {format_time(sentinel_time)}")
 		print(f"Ellapsed Time: {elapsed_time:.3f}s")
 		print(f"Throughput: {throughput:.3f} msg/s")
-		print(f"unvalidated_batch_df size is {len(unvalidated_batch_df)}")
+		#try:
+		#	print(f"unvalidated_batch_df size is {len(unvalidated_batch_df)}")
+		#except Exception as e:
+		#	print(f"ERROR on line 277: {type(e).__name__}: {e}")
+		#	logging.error(f"Failed to print unvalidated_batch_df size: {e}")
+
 
 	#----Reset Data Structure(s)------------------------------------------------
 		breadcrumb_count = 0
