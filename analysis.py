@@ -23,7 +23,7 @@ unique_vehicles = set()
 unique_trips = set()
 expected_count = None
 sentinel_time = None
-unvalidated_batch_df = pd.DataFrame(columns=['EVENT_NO_TRIP', 'EVENT_NO_STOP', 'OPD_DATE', 'VEHICLE_ID', 'METERS', 'ACT_TIME', 'GPS_LONGITUDE', 'GPS_LATITUDE', 'GPS_SATELLITES', 'GPS_HDOP'])
+unvalidated_batch_list = []
 validate_count = 0
 
 
@@ -216,13 +216,13 @@ SUBSCRIPTION_ID  = 'analysis_sub'
 subscriber = pubsub_v1.SubscriberClient()
 sub_path   = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
 
+
 #---Callback Function------------------------------------------------------
 def callback(message):
 	global breadcrumb_count, unique_vehicles, unique_trips, earliest_bc, latest_bc, wall_clock_time
-	global expected_count, sentinel_time, unvalidated_batch_df, validate_count
+	global expected_count, sentinel_time, unvalidated_batch_list, validate_count
 	message.ack()
 	breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
-	#breadcrumb_df = pd.DataFrame([breadcrumb])
 
 	# analysis happens here
 	if breadcrumb['VEHICLE_ID'] == 0:
@@ -230,16 +230,14 @@ def callback(message):
 		expected_count = breadcrumb['METERS']
 		sentinel_time = time.time()
 	else:
-		#unvalidated_batch_df = pd.concat([unvalidated_batch_df, breadcrumb_df], ignore_index=True)
-		#if len(unvalidated_batch_df) % 100000 == 0:
-		#	print(f"{len(unvalidated_batch_df)} records loaded into a df")
-
-		# Not sentinel so process data
+        	# Not sentinel so process data
 		if wall_clock_time is None: #start timer when first breadcrumb recieved
 			wall_clock_time = time.time()
 			print(f"First breadcrumb received at {format_time(wall_clock_time)}")
 
 		breadcrumb_count = breadcrumb_count + 1
+
+		unvalidated_batch_list.append(breadcrumb)
 
 		if breadcrumb_count % 100000 == 0:
 			print(f"Collected {breadcrumb_count} so far")
@@ -256,6 +254,7 @@ def callback(message):
 			latest_bc = current_bc_time
 		if earliest_bc is None or current_bc_time < earliest_bc:
 			earliest_bc = current_bc_time
+
 
 	# After recieving Sentinel ensure that it hits expected count
 	if expected_count is not None and breadcrumb_count == expected_count:
@@ -274,16 +273,16 @@ def callback(message):
 		print(f"Sentinel Received Time: {format_time(sentinel_time)}")
 		print(f"Ellapsed Time: {elapsed_time:.3f}s")
 		print(f"Throughput: {throughput:.3f} msg/s")
-		#try:
-		#	print(f"unvalidated_batch_df size is {len(unvalidated_batch_df)}")
-		#except Exception as e:
-		#	print(f"ERROR on line 277: {type(e).__name__}: {e}")
-		#	logging.error(f"Failed to print unvalidated_batch_df size: {e}")
 
+		final_unvalidated_df = pd.DataFrame(unvalidated_batch_list)
+		print(f"Unvalidated DataFrame Shape: {final_unvalidated_df.shape}")
+		validated_df, violations_df = validate_batch(final_unvalidated_df)
+		print(f"Validated DataFrame Shape: {validated_df.shape}")
+		print(f"Violations DataFrame Shape: {violations_df.shape}")
 
 	#----Reset Data Structure(s)------------------------------------------------
 		breadcrumb_count = 0
-		expected_count = 0
+		expected_count = None
 		unique_vehicles.clear()
 		unique_trips.clear()
 		earliest_bc = None
@@ -291,7 +290,9 @@ def callback(message):
 		wall_clock_time = None
 		sentinel_time = None
 		validate_count = 0
-
+		unvalidated_batch_list = []
+		violations_df = None
+		validated_df = None
 
 #---Listening--------------------------------------------------------------
 streaming_pull = subscriber.subscribe(sub_path, callback=callback)
