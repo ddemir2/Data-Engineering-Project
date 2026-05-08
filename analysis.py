@@ -6,10 +6,11 @@ from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import logging
 import pandas as pd
+import os
 
 logging.basicConfig(
-	level=logging.INFO,
-	format="%(asctime)s %(levelname)s %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
 )
 
 
@@ -28,6 +29,25 @@ validate_count = 0
 
 
 #---Helper Functions-------------------------------------------------------
+def write_invalid_records(invalid_records, run_date=None):
+    """
+    Write invalid breadcrumb records to a dated JSON file.
+
+    Parameters
+    ----------
+    invalid_records : list of dict
+        Each dict should have a 'record' key (the original data)
+        and a 'violations' key (list of assertion violation messages).
+    run_date : str, optional
+        Date string in YYYY-MM-DD format. Defaults to today.
+    """
+    if run_date is None:
+        run_date = datetime.now(ZoneInfo("America/Los_Angeles")).strftime('%Y-%m-%d')
+
+    filename = f"/home/davvan/invalid_data/invalid_data_{run_date}.json"
+
+    os.makedirs("/home/davvan/invalid_data", exist_ok=True)
+    invalid_records.to_json(filename, orient='records', lines=True, mode='a')
 
 
 def validate_batch(unvalidated_batch_df):
@@ -219,80 +239,83 @@ sub_path   = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
 
 #---Callback Function------------------------------------------------------
 def callback(message):
-	global breadcrumb_count, unique_vehicles, unique_trips, earliest_bc, latest_bc, wall_clock_time
-	global expected_count, sentinel_time, unvalidated_batch_list, validate_count
-	message.ack()
-	breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
+    global breadcrumb_count, unique_vehicles, unique_trips, earliest_bc, latest_bc, wall_clock_time
+    global expected_count, sentinel_time, unvalidated_batch_list, validate_count
+    message.ack()
+    breadcrumb = json.loads(message.data.decode('utf-8')) # one breadcrumb
 
-	# analysis happens here
-	if breadcrumb['VEHICLE_ID'] == 0:
-		# When sentinel recieve, get expected count
-		expected_count = breadcrumb['METERS']
-		sentinel_time = time.time()
-	else:
-        	# Not sentinel so process data
-		if wall_clock_time is None: #start timer when first breadcrumb recieved
-			wall_clock_time = time.time()
-			print(f"First breadcrumb received at {format_time(wall_clock_time)}")
+    # analysis happens here
+    if breadcrumb['VEHICLE_ID'] == 0:
+        # When sentinel recieve, get expected count
+        expected_count = breadcrumb['METERS']
+        sentinel_time = time.time()
+    else:
+            # Not sentinel so process data
+        if wall_clock_time is None: #start timer when first breadcrumb recieved
+            wall_clock_time = time.time()
+            print(f"First breadcrumb received at {format_time(wall_clock_time)}")
 
-		breadcrumb_count = breadcrumb_count + 1
+        breadcrumb_count = breadcrumb_count + 1
 
-		unvalidated_batch_list.append(breadcrumb)
+        unvalidated_batch_list.append(breadcrumb)
 
-		if breadcrumb_count % 100000 == 0:
-			print(f"Collected {breadcrumb_count} so far")
+        if breadcrumb_count % 100000 == 0:
+            print(f"Collected {breadcrumb_count} so far")
 
-		unique_vehicles.add(breadcrumb['VEHICLE_ID'])
-		unique_trips.add(breadcrumb['EVENT_NO_TRIP'])
+        unique_vehicles.add(breadcrumb['VEHICLE_ID'])
+        unique_trips.add(breadcrumb['EVENT_NO_TRIP'])
 
-		raw_opd = breadcrumb['OPD_DATE']
-		raw_act = breadcrumb['ACT_TIME']
+        raw_opd = breadcrumb['OPD_DATE']
+        raw_act = breadcrumb['ACT_TIME']
 
-		current_bc_time = calc_breadcrumb_timestamp(raw_opd, raw_act)
+        current_bc_time = calc_breadcrumb_timestamp(raw_opd, raw_act)
 
-		if latest_bc is None or current_bc_time > latest_bc:
-			latest_bc = current_bc_time
-		if earliest_bc is None or current_bc_time < earliest_bc:
-			earliest_bc = current_bc_time
+        if latest_bc is None or current_bc_time > latest_bc:
+            latest_bc = current_bc_time
+        if earliest_bc is None or current_bc_time < earliest_bc:
+            earliest_bc = current_bc_time
 
 
-	# After recieving Sentinel ensure that it hits expected count
-	if expected_count is not None and breadcrumb_count == expected_count:
-		elapsed_time = sentinel_time - wall_clock_time
-		throughput = breadcrumb_count / elapsed_time
+    # After recieving Sentinel ensure that it hits expected count
+    if expected_count is not None and breadcrumb_count == expected_count:
+        elapsed_time = sentinel_time - wall_clock_time
+        throughput = breadcrumb_count / elapsed_time
 
-		#---Summary Statistics-----------------------------------------------------
-		print("\nSentinel Recieved")
-		print("Summary Statistics:")
-		print(f"First message received: {format_time(wall_clock_time)}")
-		print(f"Unique Vehicle IDs: {len(unique_vehicles)}")
-		print(f"Earliest Breadcrumb from OPD and ACT: {earliest_bc}")
-		print(f"Latest Breadcrumb from OPD and ACT: {latest_bc}")
-		print(f"Unique Trip IDs: {len(unique_trips)}")
-		print(f"Total Breadcrumbs Received: {breadcrumb_count}")
-		print(f"Sentinel Received Time: {format_time(sentinel_time)}")
-		print(f"Ellapsed Time: {elapsed_time:.3f}s")
-		print(f"Throughput: {throughput:.3f} msg/s")
+        #---Summary Statistics-----------------------------------------------------
+        print("\nSentinel Recieved")
+        print("Summary Statistics:")
+        print(f"First message received: {format_time(wall_clock_time)}")
+        print(f"Unique Vehicle IDs: {len(unique_vehicles)}")
+        print(f"Earliest Breadcrumb from OPD and ACT: {earliest_bc}")
+        print(f"Latest Breadcrumb from OPD and ACT: {latest_bc}")
+        print(f"Unique Trip IDs: {len(unique_trips)}")
+        print(f"Total Breadcrumbs Received: {breadcrumb_count}")
+        print(f"Sentinel Received Time: {format_time(sentinel_time)}")
+        print(f"Ellapsed Time: {elapsed_time:.3f}s")
+        print(f"Throughput: {throughput:.3f} msg/s")
 
-		final_unvalidated_df = pd.DataFrame(unvalidated_batch_list)
-		print(f"Unvalidated DataFrame Shape: {final_unvalidated_df.shape}")
-		validated_df, violations_df = validate_batch(final_unvalidated_df)
-		print(f"Validated DataFrame Shape: {validated_df.shape}")
-		print(f"Violations DataFrame Shape: {violations_df.shape}")
+        final_unvalidated_df = pd.DataFrame(unvalidated_batch_list)
+        print(f"Unvalidated DataFrame Shape: {final_unvalidated_df.shape}")
+        validated_df, violations_df = validate_batch(final_unvalidated_df)
+        print(f"Validated DataFrame Shape: {validated_df.shape}")
+        print(f"Violations DataFrame Shape: {violations_df.shape}")
 
-	#----Reset Data Structure(s)------------------------------------------------
-		breadcrumb_count = 0
-		expected_count = None
-		unique_vehicles.clear()
-		unique_trips.clear()
-		earliest_bc = None
-		latest_bc = None
-		wall_clock_time = None
-		sentinel_time = None
-		validate_count = 0
-		unvalidated_batch_list = []
-		violations_df = None
-		validated_df = None
+        if not violations_df.empty:
+            write_invalid_records(violations_df)
+
+        #----Reset Data Structure(s)------------------------------------------------
+        breadcrumb_count = 0
+        expected_count = None
+        unique_vehicles.clear()
+        unique_trips.clear()
+        earliest_bc = None
+        latest_bc = None
+        wall_clock_time = None
+        sentinel_time = None
+        validate_count = 0
+        unvalidated_batch_list = []
+        violations_df = None
+        validated_df = None
 
 #---Listening--------------------------------------------------------------
 streaming_pull = subscriber.subscribe(sub_path, callback=callback)
