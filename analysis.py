@@ -14,6 +14,10 @@ logging.basicConfig(
 )
 
 
+#---Constants---------------------------------------------------------------
+
+home_dir = "/home/davvan/"
+#home_dir = "/home/pawood/"
 
 #---Data Structures---------------------------------------------------------
 breadcrumb_count = 0
@@ -44,9 +48,9 @@ def write_invalid_records(invalid_records, run_date=None):
     if run_date is None:
         run_date = datetime.now(ZoneInfo("America/Los_Angeles")).strftime('%Y-%m-%d')
 
-    filename = f"/home/davvan/invalid_data/invalid_data_{run_date}.json"
+    filename = home_dir + f"invalid_data/invalid_data_{run_date}.json"
 
-    os.makedirs("/home/davvan/invalid_data", exist_ok=True)
+    os.makedirs(home_dir + "invalid_data", exist_ok=True)
     invalid_records.to_json(filename, orient='records', lines=True, mode='a')
 
 
@@ -229,6 +233,30 @@ def format_time(raw_timestamp):
     formated_time = datetime.fromtimestamp(raw_timestamp, tz=ZoneInfo("America/Los_Angeles"))
     return formated_time.strftime('%Y-%m-%d %H:%M:%S')
 
+def transform_data(valid_df):
+    #Drop uneeded columns
+    valid_df.drop(["EVENT_NO_STOP", "GPS_SATELLITES", "GPS_HDOP"], axis=1, inplace=True)
+
+    #Create Timestamp column
+    opd_date_series = pd.to_datetime(valid_df["OPD_DATE"], format='%d%b%Y:%H:%M:%S')
+    act_time_series = pd.to_timedelta(valid_df["ACT_TIME"], unit='s')
+    timestamp_series = opd_date_series + act_time_series
+    timestamp_series.name = "timestamp"
+    valid_df = valid_df.join(timestamp_series)
+    valid_df.drop(["OPD_DATE", "ACT_TIME"], axis=1, inplace=True)
+
+    #Create speed field
+    delta_distance  = valid_df.groupby("EVENT_NO_TRIP")["METERS"].diff()
+    delta_time = valid_df.groupby("EVENT_NO_TRIP")["timestamp"].diff().dt.total_seconds()
+    speed_series = delta_distance / delta_time
+    speed_series.name = "speed"
+    valid_df = valid_df.join(speed_series)
+    valid_df["speed"] = valid_df["speed"].fillna(0)
+
+    #Rename Columns
+    valid_df.rename(columns={'EVENT_NO_TRIP': 'trip_id', 'VEHICLE_ID': 'vehicle_id', 'GPS_LONGITUDE': 'longitude', 'GPS_LATITUDE': 'latitude'}, inplace=True)
+
+    return valid_df
 
 #---Congiguration----------------------------------------------------------
 PROJECT_ID       = 'de-project-bus-lightyear'
@@ -302,6 +330,9 @@ def callback(message):
 
         if not violations_df.empty:
             write_invalid_records(violations_df)
+
+        transformed_df = transform_data(validated_df)
+        print(transformed_df.head())
 
         #----Reset Data Structure(s)------------------------------------------------
         breadcrumb_count = 0
