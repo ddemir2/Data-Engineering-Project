@@ -7,6 +7,9 @@ from zoneinfo import ZoneInfo
 import logging
 import pandas as pd
 import os
+import psycopg2 #1 add
+from dotenv import load_dotenv #2 add
+from sqlalchemy import create_engine #3 add
 
 logging.basicConfig(
     level=logging.INFO,
@@ -254,9 +257,71 @@ def transform_data(valid_df):
     valid_df["speed"] = valid_df["speed"].fillna(0)
 
     #Rename Columns
-    valid_df.rename(columns={'EVENT_NO_TRIP': 'trip_id', 'VEHICLE_ID': 'vehicle_id', 'GPS_LONGITUDE': 'longitude', 'GPS_LATITUDE': 'latitude'}, inplace=True)
+    # 5 rename meters
+    valid_df.rename(columns={'EVENT_NO_TRIP': 'trip_id', 'VEHICLE_ID': 'vehicle_id', 'GPS_LONGITUDE': 'longitude', 'GPS_LATITUDE': 'latitude', 'METERS': 'meters'}, inplace=True)
 
     return valid_df
+
+
+def write_to_database(transformed_df): #6 add
+  load_dotenv()
+  log = logging.getLogger(__name__)
+  TABLE_NAME = "breadcrumb"
+  insert_count = 0
+
+  DB_USERNAME = os.getenv('DB_USERNAME', 'DB_USERNAME_DEFAULT')
+  DB_PASSWORD = os.getenv('DB_PASSWORD', 'DB_PASSWORD_DEFAULT')
+  DB_HOST = os.getenv('DB_HOST', 'localhost')
+  DB_PORT = os.getenv('DB_PORT', '5432')
+  DB_NAME = os.getenv('DB_NAME', 'DB_NAME_DEFAULT')
+
+  DATABASE_URL = f"postgresql+psycopg2://{DB_USERNAME}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+  #print(f"Constructed DATABASE_URL: {DATABASE_URL}")
+  #print(f"Attempting to insert into table: {TABLE_NAME} in database: {DB_NAME}")
+
+  engine = None
+  conn = None
+  try:
+    engine = create_engine(DATABASE_URL)
+    #log.info("SQLAlchemy engine created.")
+    #with engine.connect() as connection:
+    #    check_query = f"SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '{TABLE_NAME}';"
+    #    table_exists = connection.execute(check_query).scalar()
+    #    if not table_exists:
+    #        log.warning(f"Table '{TABLE_NAME}' not found in 'public' schema. pandas.to_sql will attempt to create it.")
+
+    #log.info(f"Calling pandas.to_sql for table '{TABLE_NAME}'...")
+    transformed_df.to_sql(TABLE_NAME, engine, if_exists='append', index=False, schema='public')
+    insert_count = len(transformed_df)
+    #log.info(f"Successfully inserted {insert_count} records into 'public.{TABLE_NAME}' table.")
+
+    #--- Direct verification after insertion ---
+    conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USERNAME, password=DB_PASSWORD, port=DB_PORT)
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) FROM public.{TABLE_NAME};")
+    total_records = cur.fetchone()[0]
+    cur.execute(f"SELECT * FROM public.{TABLE_NAME} LIMIT 1;")
+    sample_record = cur.fetchone()
+
+    print(f"\n--- Database Verification (from Python) ---")
+    print(f"Total records in public.{TABLE_NAME} after insertion: {total_records}")
+    print(f"Sample record from public.{TABLE_NAME}: {sample_record}")
+    print(f"-------------------------------------------\n")
+
+  except Exception as e:
+    log.error(f"Error writing to database: {e}")
+    if 'permission denied' in str(e).lower():
+        log.error("permission issue?")
+  finally:
+    if conn:
+        conn.close()
+    if engine:
+        engine.dispose()
+
+  return insert_count
+
+
+
 
 #---Congiguration----------------------------------------------------------
 PROJECT_ID       = 'de-project-bus-lightyear'
@@ -333,6 +398,7 @@ def callback(message):
 
         transformed_df = transform_data(validated_df)
         print(transformed_df.head())
+        write_to_database(transformed_df)
 
         #----Reset Data Structure(s)------------------------------------------------
         breadcrumb_count = 0
